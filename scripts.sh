@@ -1,4 +1,3 @@
-export LMMS_EVAL_PLUGINS=lmms_plugin
 export PYTHONPATH=/home/ma-user/code/zyj/LLaDA-V/eval:/home/ma-user/code/zyj/LLaDA-V//train:$PYTHONPATH
 
 accelerate launch --config_file config.yaml evaluation_script.py --model llada_v --tasks ai2d --batch_size 1 \
