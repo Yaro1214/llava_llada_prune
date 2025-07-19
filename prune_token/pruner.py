@@ -96,11 +96,11 @@ class Random_v1(LLaDAModel):
         suffix_length=self.prune_config.suffix_length #if self.config.suffix_len is not None else 0
         if self.prune_config.is_prune:
             num_block = self.prune_config.current_block
-            num_step = self.prune_config.num_step
+            num_step = self.prune_config.current_step
             K = self.prune_config.pruned_layer
             ratio=self.prune_config.reduction_ratio
             image_start=self.prune_config.image_token_start_index
-            image_token_length=self.prune_config.image_token_length if self.config.text_length is None else (seq_length - self.config.text_length - gen_length - suffix_len)
+            image_token_length=self.prune_config.image_token_length if self.prune_config.text_length is None else (seq_length - self.prune_config.text_length - gen_length - suffix_length)
             image_end = image_start + image_token_length
         else:
             K = -1

@@ -448,6 +448,7 @@ class llada_v(lmms):
 
         origin_image_aspect_ratio = getattr(self._config, "image_aspect_ratio", None)
 
+        #任务循环
         for chunk in chunks:
             batched_contexts, all_gen_kwargs, batched_doc_to_visual, batched_doc_id, batched_task, batched_split = zip(*chunk)
             task = batched_task[0]
@@ -463,11 +464,13 @@ class llada_v(lmms):
 
             question_input = []
             # import ipdb; ipdb.set_trace()
+            #问答循环（核心代码）
             for visual, context in zip(batched_visuals, batched_contexts):
                 if origin_image_aspect_ratio is not None and self._config.image_aspect_ratio != origin_image_aspect_ratio:
                     self._config.image_aspect_ratio = origin_image_aspect_ratio
                     eval_logger.info(f"Resetting image aspect ratio to {origin_image_aspect_ratio}")
 
+                #判断任务类型+图像处理
                 if visual is None or visual == []:  # for text-only tasks.
                     visual = None
                     task_type = "text"
@@ -519,6 +522,7 @@ class llada_v(lmms):
                         task_type = "video"
                         placeholder_count = len(frames) if self.token_strategy == "multiple" else 1
 
+                #插入图像token占位符构造问题字符串
                 if image_tensor is not None and len(image_tensor) != 0 and DEFAULT_IMAGE_TOKEN not in context:
                     """
                     Three scenarios:
@@ -543,6 +547,7 @@ class llada_v(lmms):
                 else:
                     question = context
 
+                #构造对话模板prompt
                 # This is much safer for llama3, as we now have some object type in it
                 if "llama_3" or "llava_llada" in self.conv_template:
                     conv = copy.deepcopy(conv_templates[self.conv_template])
@@ -566,9 +571,10 @@ class llada_v(lmms):
                     prompt_question = conv.get_prompt()
                     question_input.append(prompt_question)
                 
-            print(question_input)
-            print('--------------------------------')
+            # print(question_input)
+            # print('--------------------------------')
 
+            #配置gen_kwargs相关参数
             if "temperature" not in gen_kwargs:
                 gen_kwargs["temperature"] = 0
             if "cfg" not in gen_kwargs:
@@ -584,11 +590,13 @@ class llada_v(lmms):
             elif "gen_steps" in gen_kwargs and "steps" not in gen_kwargs:
                 gen_kwargs["steps"] = gen_kwargs["gen_steps"]
 
+            #对输入进行tokenize处理得到input_ids、attention_masks
             input_ids_list = [tokenizer_image_token(prompt, self.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt") for prompt in question_input]
             pad_token_ids = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id
             input_ids = self.pad_sequence(input_ids_list, batch_first=True, padding_value=pad_token_ids).to(self.device)
             attention_masks = input_ids.ne(pad_token_ids).to(self.device)
-
+            
+            #对于图像和视频的gen_kwargs参数的设置,例如图像尺寸(width，height)
             if task_type == "image":
                 gen_kwargs["image_sizes"] = [batched_visuals[0][idx].size for idx in range(len(batched_visuals[0]))]
                 stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
@@ -620,8 +628,8 @@ class llada_v(lmms):
                 self._config.mm_spatial_pool_stride = self.mm_spatial_pool_stride
                 self._config.mm_spatial_pool_mode = self.mm_spatial_pool_mode
 
+            #调用模型生成得到结果
             # These steps are not in LLaVA's original code, but are necessary for generation to work
-            # TODO: attention to this major generation step...
             if "image_aspect_ratio" in gen_kwargs.keys():
                 gen_kwargs.pop("image_aspect_ratio")
             try:
@@ -673,6 +681,7 @@ class llada_v(lmms):
 
         origin_image_aspect_ratio = getattr(self._config, "image_aspect_ratio", None)
 
+        #evaluation主循环(逐个处理每一个同构任务)
         for chunk in chunks:
             batched_contexts, all_gen_kwargs, batched_doc_to_visual, batched_doc_to_text, batched_doc_id, batched_task, batched_split = zip(*chunk)
             task = batched_task[0]
@@ -691,8 +700,9 @@ class llada_v(lmms):
             batched_round_res = []
             batched_previous_round_info = None
             while True:
+                #单个任务评估
                 question_input = []
-
+                #预处理
                 if round_idx != 0:  # get current round visual and context from doc_to_text function
                     batched_visuals, batched_contexts, batched_terminal_singal, batched_round_res, batched_previous_round_info = list(
                         zip(
@@ -711,13 +721,14 @@ class llada_v(lmms):
                     batched_round_res = list(zip(*batched_round_res))  # [(r1_1, r1_2), (r2_1, r2_2), ...]
                     if batched_terminal_singal[0]:  # terminal signal from doc_to_text function
                         break
-
+                #遍历完成每一个问答
                 for visual, context in zip(batched_visuals, batched_contexts):
                     if origin_image_aspect_ratio is not None and self._config.image_aspect_ratio != origin_image_aspect_ratio:
                         self._config.image_aspect_ratio = origin_image_aspect_ratio
                         eval_logger.info(f"Resetting image aspect ratio to {origin_image_aspect_ratio}")
-
+                    #判断任务类型+图像处理
                     if visual is None or visual == []:  # for text-only tasks.
+                        #纯文本任务
                         visual = None
                         task_type = "text"
                         placeholder_count = 0
@@ -743,6 +754,7 @@ class llada_v(lmms):
                             placeholder_count = 1
 
                         elif type(visual[0]) == PIL.Image.Image:  # For image, multi-image tasks
+                            #图像任务
                             image_tensor = process_images(visual, self._image_processor, self._config)
                             if type(image_tensor) is list:
                                 image_tensor = [_image.to(dtype=torch.float16, device=self.device) for _image in image_tensor]
@@ -753,6 +765,7 @@ class llada_v(lmms):
                             placeholder_count = len(visual) if isinstance(visual, list) else 1
 
                         elif type(visual[0]) == str:  # For video task
+                            #视频任务
                             image_tensor = []
                             try:
                                 if self.video_decode_backend == "decord":
