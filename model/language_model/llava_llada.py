@@ -27,10 +27,10 @@ from torch.nn import CrossEntropyLoss
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.generation.utils import GenerateOutput
 
-from llava.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
+from llava.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM # type: ignore
 
 from .modeling_llada import LLaDAConfig,LLaDAModelLM
-from prune_token import Random_v1
+from prune_token import Random_v1,Pruner
 
 
 class LlavaLLaDAConfig(LLaDAConfig):
@@ -42,7 +42,7 @@ class LlavaLLaDAConfig(LLaDAConfig):
     # rope_scaling: Optional[dict] = {}
 
 
-class LlavaLLaDAModel(LlavaMetaModel, Random_v1):
+class LlavaLLaDAModel(LlavaMetaModel, Pruner):
     config_class = LlavaLLaDAConfig
 
     def __init__(self, config: LLaDAConfig):

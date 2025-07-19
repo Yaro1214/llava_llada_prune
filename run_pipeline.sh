@@ -16,5 +16,5 @@ python evaluation_script.py --model llada_v --tasks ai2d --batch_size 1 \
   --output_path ./ai2d_log \
   --log_samples \
   --log_samples_suffix ai2d \
-  --device cuda:5 \
+  --device cuda:7 \
   --limit 1

@@ -49,7 +49,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from .configuration_llada import LLaDAConfig
-from llava.cache import dLLMCache, dLLMCacheConfig
+from llava.cache import dLLMCache, dLLMCacheConfig # type: ignore
 from prune_token import PruneConfig
 
 if is_flash_attn_2_available():
@@ -1329,6 +1329,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
         '''
         # Use mixed precision for faster computation
         with torch.cuda.amp.autocast(enabled=True):
+            #处理后缀
             # Handle generation suffix
             suffix_embeds = None
             suffix_token_ids = None
@@ -1343,20 +1344,25 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             else:
                 suffix_len = 0
 
-            # pdb.set_trace()
+            #创建embedding空间
             # Create input in embedding space
             total_length = inputs_embeds.shape[1] + gen_length + suffix_len
             masked_embed = self.model.embed_tokens(torch.tensor([mask_id]).to(inputs_embeds.device)) # shape (1, d)
+            #创建一个全是mask的embedding向量
             x_embeds = masked_embed.repeat(1, total_length, 1).to(inputs_embeds.device) # shape (1, l + gen_length + suffix_len, d)
+            #替换prompt部分
             x_embeds[:, :inputs_embeds.shape[1]] = inputs_embeds.clone()
+            #替换suffix部分
             if suffix_embeds is not None:
                 x_embeds[:, -suffix_len:] = suffix_embeds
 
+            #创建x(token id序列)以及prompt索引
             # Create a tracking tensor for token IDs for final output
             x = torch.full((1, total_length), mask_id, dtype=torch.long, device=inputs_embeds.device)
             if suffix_token_ids is not None:
                 x[:, -suffix_len:] = suffix_token_ids
 
+            #prompt索引
             # prompt_index: A tensor of shape (1, l + gen_length + suffix_len) where the first l elements are 1 (representing the prompt) 
             # and the remaining gen_length+suffix_len elements are 0 (representing the generated part)
             prompt_index = torch.zeros((1, total_length), dtype=torch.bool, device=inputs_embeds.device)
@@ -1443,16 +1449,15 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                     #print(mask_index.shape, x_embeds.shape, x.shape, prompt_index.shape, logits.shape)
                     ################
                     if logits.shape[1] != mask_index.shape[1]:
-                        if i == 0 and num_block == 0 and outputs[-1] is not None and type(outputs[-1]) is not tuple:  # tuple -> kv cache
-                            # pdb.set_trace()
-                            mask_index = torch.gather(mask_index, dim=1, index=outputs[-1].long()).contiguous()
-                            x = torch.gather(x, dim=1, index=outputs[-1].long()).contiguous()
-                            x_embeds = torch.gather(x_embeds, dim=1, index=outputs[-1].long().unsqueeze(-1).expand(-1, -1, x_embeds.size(-1))).contiguous()
-                            inputs_embeds = torch.gather(inputs_embeds, dim=1, index=outputs[-1][:, :outputs[-1].shape[1] - gen_length - suffix_len].long().unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1))).contiguous()
-                            prompt_index = torch.gather(prompt_index, dim=1, index=outputs[-1].long()).contiguous()
+                        #if i == 0 and num_block == 0 and outputs[-1] is not None and type(outputs[-1]) is not tuple:  # tuple -> kv cache
+                        mask_index = torch.gather(mask_index, dim=1, index=outputs[-1].long()).contiguous()
+                        x = torch.gather(x, dim=1, index=outputs[-1].long()).contiguous()
+                        x_embeds = torch.gather(x_embeds, dim=1, index=outputs[-1].long().unsqueeze(-1).expand(-1, -1, x_embeds.size(-1))).contiguous()
+                        inputs_embeds = torch.gather(inputs_embeds, dim=1, index=outputs[-1][:, :outputs[-1].shape[1] - gen_length - suffix_len].long().unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1))).contiguous()
+                        prompt_index = torch.gather(prompt_index, dim=1, index=outputs[-1].long()).contiguous()
 
-                            block_start = inputs_embeds.shape[1] + num_block * block_length
-                            block_end = inputs_embeds.shape[1] + (num_block + 1) * block_length
+                        block_start = inputs_embeds.shape[1] + num_block * block_length
+                        block_end = inputs_embeds.shape[1] + (num_block + 1) * block_length
                     ################
                     #print(mask_index.shape, x_embeds.shape, x.shape, prompt_index.shape, logits.shape)
 

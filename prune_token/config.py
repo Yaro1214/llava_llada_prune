@@ -13,6 +13,8 @@ class Singleton(type):
 class PruneConfig(metaclass=Singleton):
     def __init__(self):
         self.is_prune: bool = False
+        self.prune_strategy:str = "random_v1"
+
         self.pruned_layer: int = -1
         self.reduction_ratio: float = -1.0
         self.pivot_image_token: int = -1
@@ -33,13 +35,11 @@ class PruneConfig(metaclass=Singleton):
         ins = cls()
         if is_prune:
             ins.is_prune = True
+            ins.strategy = kwargs.get("prune_strategy","random_v1")
             ins.pruned_layer = kwargs.get("pruned_layer", 2)
             ins.reduction_ratio = kwargs.get("reduction_ratio", 0.778)
             ins.pivot_image_token = kwargs.get("pivot_image_token", 4)
             ins.pivot_text_token = kwargs.get("pivot_text_token", 4)
-            
-            ins.image_token_starimt_index= kwargs.get("image_token_start_index", 0)
-            ins.image_token_length= kwargs.get("image_token_length", 0)
 
         else:
             ins.is_prune = False
@@ -54,16 +54,6 @@ class PruneConfig(metaclass=Singleton):
         self.current_block = -1
         self.current_step = -1
 
-    # def set(self,suffix_length=None, text_length=None, gen_length=None,image_token_starimt_index=None):
-    #     if suffix_length is not None:
-    #         self.suffix_length = suffix_length
-    #     if text_length is not None:
-    #         self.text_length = text_length
-    #     if gen_length is not None:
-    #         self.gen_length = gen_length
-    #     if image_token_starimt_index is not None:
-    #         self.image_token_start_index=image_token_starimt_index
-
     def set(self, **kwargs):
         for attr in ["suffix_length", "text_length", "gen_length", "image_token_start_index"]:
             if attr in kwargs and kwargs[attr] is not None:
@@ -74,9 +64,3 @@ class PruneConfig(metaclass=Singleton):
 
     def update_step(self):
         self.current_step += 1
-
-    def get_current_block(self):
-        return self.current_block
-
-    def get_current_step(self):
-        return self.current_step

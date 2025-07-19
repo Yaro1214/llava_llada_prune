@@ -1,2 +1,2 @@
 from .config import PruneConfig
-from .pruner import Random_v1
+from .pruner import Random_v1,Pruner
