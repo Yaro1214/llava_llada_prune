@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import List, Optional, Tuple, Union
 import torch
 import torch.nn.functional as F
-
+import time
 import numpy as np
 import PIL
 import torch
@@ -23,10 +23,8 @@ from transformers import AutoConfig
 from lmms_eval import utils
 from lmms_eval.api.instance import Instance
 from lmms_eval.api.model import lmms
-from lmms_eval.api.registry import register_model
+from lmms_eval.api.registry import register_model,get_model
 from lmms_eval.models.model_utils.load_video import read_video_pyav
-
-from prune_token import PruneConfig
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -93,7 +91,7 @@ class llada_v(lmms):
         mc_num: Optional[int] = 128,
         batch_size_ppl: Optional[int] = 32,
         is_check_greedy: Optional[bool] = True,
-        is_prune=False,
+        use_fast_dllm: Optional[bool] = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -154,11 +152,10 @@ class llada_v(lmms):
         self._config = self._model.config
         self.model.eval()
 
-        #设置prune相关参数
-        self.prune_config=PruneConfig.instance(is_prune,**kwargs)
-
-        #TODO：设置cache相关参数
-
+        if use_fast_dllm:
+            print("Using fast dLLM hook")
+            from llava.hooks.fast_dllm_hook import register_fast_dllm_hook
+            register_fast_dllm_hook(self.model)
 
         self.truncation = truncation
         self.batch_size_per_gpu = int(batch_size)
@@ -447,7 +444,9 @@ class llada_v(lmms):
         pbar = tqdm(total=num_iters, disable=(self.rank != 0), desc="Model Responding")
 
         origin_image_aspect_ratio = getattr(self._config, "image_aspect_ratio", None)
+        num_tokens = 0
 
+        start_time = time.time()
         for chunk in chunks:
             batched_contexts, all_gen_kwargs, batched_doc_to_visual, batched_doc_id, batched_task, batched_split = zip(*chunk)
             task = batched_task[0]
@@ -626,16 +625,15 @@ class llada_v(lmms):
                 gen_kwargs.pop("image_aspect_ratio")
             try:
                 with torch.inference_mode():
-                    if self.prune_config.is_prune:
-                        image_token_start_index = input_ids.tolist()[0].index(-200)
-                        self.config.text_length = input_ids.shape[-1] - 1 
-                        self.prune_config.image_token_start_index = image_token_start_index
                     cont = self.model.generate(input_ids, attention_mask=attention_masks, pad_token_id=pad_token_ids, images=image_tensor, use_cache=False, **gen_kwargs)
+                    # cont = self.model.generate(qwen_input_ids, pad_token_id=pad_token_ids, images=image_tensor, use_cache=self.use_cache, **gen_kwargs)
 
                 text_outputs = self.tokenizer.batch_decode(cont, skip_special_tokens=True)
                 text_outputs = [output[:-1] if output.endswith('.') else output for output in text_outputs]
-                # print(text_outputs)
-                # print('--------------------------------')
+                num_tokens += (cont != self.tokenizer.eos_token_id).sum()
+
+                print(text_outputs)
+                print('--------------------------------')
             except Exception as e:
                 raise e
 
@@ -645,7 +643,10 @@ class llada_v(lmms):
             pbar.update(1)
             # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
-
+        end_time = time.time()
+        print(f"Time taken: {end_time - start_time} seconds")
+        print(f"Tokens per second: {num_tokens / (end_time - start_time)}")
+        print(f"Total number of tokens: {num_tokens}")
         pbar.close()
         return res
 

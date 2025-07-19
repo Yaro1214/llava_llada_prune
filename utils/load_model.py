@@ -23,6 +23,7 @@ from llava.model import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from llava.utils import rank0_print
 from model.language_model.llava_llada import LlavaLLaDAConfig
+from model.language_model.llava_llada import LlavaLLaDAModelLM
 
 def set_bit(load_8bit,load_4bit,torch_dtype,kwargs):
     if load_8bit:
@@ -56,17 +57,18 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
         # Load LLaVA model
         rank0_print(f"Loaded LLaVA model: {model_path}")
         if "llada" in model_name.lower():
+            #初始化tokenizer
             tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
+            #初始化config
             if customized_config is None:
                 llada_cfg = LlavaLLaDAConfig.from_pretrained(model_path)
             else:
                 llada_cfg = customized_config
-
             if overwrite_config is not None:
                 rank0_print(f"Overwriting config with {overwrite_config}")
                 for k, v in overwrite_config.items():
                     setattr(llada_cfg, k, v)
-
+            #利用config初始化model
             model = LlavaLLaDAModelLM.from_pretrained(model_path, low_cpu_mem_usage=True, attn_implementation=attn_implementation, config=llada_cfg, **kwargs)
 
     rank0_print(f"Model Class: {model.__class__.__name__}")
