@@ -28,8 +28,10 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.generation.utils import GenerateOutput
 
 from llava.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
-from llava.model.language_model.configuration_llada import LLaDAConfig
-from llava.model.language_model.modeling_llada import LLaDAModel, LLaDAModelLM
+
+from model.language_model import LLaDAConfig
+from model.language_model import LLaDAModelLM
+from prune_token import Random_v1
 
 
 class LlavaLLaDAConfig(LLaDAConfig):
@@ -41,7 +43,7 @@ class LlavaLLaDAConfig(LLaDAConfig):
     # rope_scaling: Optional[dict] = {}
 
 
-class LlavaLLaDAModel(LlavaMetaModel, LLaDAModel):
+class LlavaLLaDAModel(LlavaMetaModel, Random_v1):
     config_class = LlavaLLaDAConfig
 
     def __init__(self, config: LLaDAConfig):

@@ -29,12 +29,11 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
-
+import pdb
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_outputs import (
-    BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     QuestionAnsweringModelOutput,
     SequenceClassifierOutputWithPast,
@@ -51,6 +50,7 @@ from transformers.utils import (
 )
 from .configuration_llada import LLaDAConfig
 from llava.cache import dLLMCache, dLLMCacheConfig
+from prune_token import PruneConfig
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -60,6 +60,17 @@ if is_flash_attn_2_available():
 logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "LLaDAConfig"
+
+from transformers.utils import ModelOutput
+from dataclasses import dataclass
+from typing import Optional, Tuple
+@dataclass
+class BaseModelOutputWithPast(ModelOutput):
+    last_hidden_state: torch.FloatTensor = None
+    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
+    hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[torch.FloatTensor]] = None  
+    retained_indices: Optional[torch.LongTensor] = None  # add by zichen 
 
 
 def _get_unpad_data(attention_mask):
@@ -399,6 +410,7 @@ class LLaDAAttention(nn.Module):
         else:
             attn_output = self.o_proj(attn_output)
 
+        # pdb.set_trace()
         if not output_attentions:
             attn_weights = None
 
@@ -626,6 +638,7 @@ class LLaDASdpaAttention(LLaDAAttention):
                 "LLaDAModel is using LLaDASdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, "
                 'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
             )
+            # pdb.set_trace()
             return super().forward(
                 hidden_states=hidden_states,
                 attention_mask=attention_mask,
@@ -701,7 +714,8 @@ class LLaDADecoderLayer(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
 
-        self.self_attn = LLaDA_ATTENTION_CLASSES[config._attn_implementation](config=config, layer_idx=layer_idx)
+        # self.self_attn = LLaDA_ATTENTION_CLASSES[config._attn_implementation](config=config, layer_idx=layer_idx)
+        self.self_attn = LLaDA_ATTENTION_CLASSES["sdpa"](config=config, layer_idx=layer_idx)
 
         self.mlp = LLaDAMLP(config)
         self.input_layernorm = LLaDARMSNorm(config.hidden_size, eps=config.rms_norm_eps)
@@ -1329,6 +1343,10 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             else:
                 suffix_len = 0
 
+            self.model.config.suffix_len = suffix_len
+            self.model.config.gen_length = gen_length
+
+            # pdb.set_trace()
             # Create input in embedding space
             total_length = inputs_embeds.shape[1] + gen_length + suffix_len
             masked_embed = self.model.embed_tokens(torch.tensor([mask_id]).to(inputs_embeds.device)) # shape (1, d)
@@ -1365,9 +1383,12 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                     tokens = tokenizer.encode(stop_str, add_special_tokens=False)
                     stop_tokens.append(tokens)
 
-            feature_cache = dLLMCache()
-            feature_cache.reset_cache(inputs_embeds.shape[1])
+            # feature_cache = dLLMCache()
+            # feature_cache.reset_cache(inputs_embeds.shape[1])
+            
+            prune_config=PruneConfig().init()
             for num_block in range(num_blocks):
+                prune_config.update_block()
                 # Create mask index for the current block
                 block_start = inputs_embeds.shape[1] + num_block * block_length
                 block_end = inputs_embeds.shape[1] + (num_block + 1) * block_length
@@ -1382,6 +1403,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                 num_transfer_tokens = self.get_num_transfer_tokens(block_mask_index, steps)
                 
                 for i in range(steps):
+                    prune_config.update_step()
                     # Determine which positions are mask embeddings
                     mask_index = torch.all(torch.abs(x_embeds - masked_embed) < 1e-5, dim=2)
 
@@ -1414,12 +1436,30 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                         logits = un_logits + (cfg_scale + 1) * (logits - un_logits)
                     else:
                         # Forward pass
+                        # pdb.set_trace()
                         outputs = self.model(inputs_embeds=x_embeds)
                         logits = self.lm_head(outputs[0]).float()
-                    
+                    # pdb.set_trace()
+                    # TODO: pruning mask_index, x_embeds, x and prompt_index
+                    #print(mask_index.shape, x_embeds.shape, x.shape, prompt_index.shape, logits.shape)
+                    ################
+                    if logits.shape[1] != mask_index.shape[1]:
+                        if i == 0 and num_block == 0 and outputs[-1] is not None and type(outputs[-1]) is not tuple:  # tuple -> kv cache
+                            # pdb.set_trace()
+                            mask_index = torch.gather(mask_index, dim=1, index=outputs[-1].long()).contiguous()
+                            x = torch.gather(x, dim=1, index=outputs[-1].long()).contiguous()
+                            x_embeds = torch.gather(x_embeds, dim=1, index=outputs[-1].long().unsqueeze(-1).expand(-1, -1, x_embeds.size(-1))).contiguous()
+                            inputs_embeds = torch.gather(inputs_embeds, dim=1, index=outputs[-1][:, :outputs[-1].shape[1] - gen_length - suffix_len].long().unsqueeze(-1).expand(-1, -1, inputs_embeds.size(-1))).contiguous()
+                            prompt_index = torch.gather(prompt_index, dim=1, index=outputs[-1].long()).contiguous()
+
+                            block_start = inputs_embeds.shape[1] + num_block * block_length
+                            block_end = inputs_embeds.shape[1] + (num_block + 1) * block_length
+                    ################
+                    #print(mask_index.shape, x_embeds.shape, x.shape, prompt_index.shape, logits.shape)
+
                     for token_id in [126081, 126080, 126346, 126347]:
                         logits[:, :, token_id] = torch.where(mask_index, -float('inf'), logits[:, :, token_id])
-                    
+                    # pdb.set_trace()
                     # Add noise and get the most likely token
                     logits_with_noise = self.add_gumbel_noise(logits, temperature=temperature) # shape (1, l + gen_length + suffix_len, vocab_size)
                     x0 = torch.argmax(logits_with_noise, dim=-1) # 1, l + gen_length + suffix_len
@@ -1440,6 +1480,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                     else:
                         # Prevent processing future blocks
                         x0_p[:, block_end:] = -np.inf
+                    # pdb.set_trace()
 
                     # Do not allow the generated suffix part to be overwritten
                     if suffix_len > 0:
@@ -1462,9 +1503,11 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                     x_embeds[transfer_index] = x0_embeds[transfer_index]
                     x[transfer_index] = x0[transfer_index]
 
+                    # pdb.set_trace()
                     # New: Check for stop words after each update
                     if stopping_criteria is not None:
                         # Only check the generated part (excluding the suffix)
+                        # pdb.set_trace()
                         generated_part = x[0, inputs_embeds.shape[1]:inputs_embeds.shape[1]+gen_length]
                         current_stop_position = None
                         
@@ -1473,6 +1516,7 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                                 stop_seq = [stop_seq]
                             # Check if the generated sequence contains stop words
                             for start_idx in range(generated_part.size(0) - len(stop_seq) + 1):
+                                
                                 if torch.all(generated_part[start_idx:start_idx + len(stop_seq)] == torch.tensor(stop_seq, device=x.device)):
                                     # Calculate the position of the currently found stop word
                                     current_position = inputs_embeds.shape[1] + start_idx
@@ -1483,6 +1527,8 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
                                     break
                             if found_stop_seq and current_stop_position is None:
                                 break
+                        # pdb.set_trace()
+
 
             # Return the generated result, up to stop_position, and append the suffix
             if found_stop_seq:

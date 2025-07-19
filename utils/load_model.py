@@ -22,8 +22,7 @@ import torch
 from llava.model import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from llava.utils import rank0_print
-from model.language_model.llava_llada import LlavaLLaDAConfig
-from model.language_model.llava_llada import LlavaLLaDAModelLM
+
 
 def set_bit(load_8bit,load_4bit,torch_dtype,kwargs):
     if load_8bit:
@@ -57,6 +56,8 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
         # Load LLaVA model
         rank0_print(f"Loaded LLaVA model: {model_path}")
         if "llada" in model_name.lower():
+            from model.language_model.llava_llada import LlavaLLaDAConfig
+            from model.language_model.llava_llada import LlavaLLaDAModelLM
             #初始化tokenizer
             tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
             #初始化config

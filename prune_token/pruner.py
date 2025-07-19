@@ -24,7 +24,7 @@ class Random_v1(LLaDAModel):
     def __init__(self, config: LLaDAConfig):
         self.last_attention = None
         self.retained_indices = None
-        self.prune_config=PruneConfig.instance()
+        self.prune_config = PruneConfig.instance()
         super().__init__(config)
     def forward(
         self,
@@ -37,7 +37,8 @@ class Random_v1(LLaDAModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-        cache_position: Optional[torch.LongTensor] = None,    
+        cache_position: Optional[torch.LongTensor] = None,
+        **kwargs,    
     ):
         #参数检查及初始化
         assert (past_key_values is None and not use_cache), "The kvcache is not suppotred for MDM."
@@ -89,6 +90,21 @@ class Random_v1(LLaDAModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
         
+        #prune
+        batch_size, seq_length = inputs_embeds.shape[:2]
+        gen_length=self.prune_config.gen_lenghth #if self.config.gen_length is not None else 0
+        suffix_length=self.prune_config.suffix_length #if self.config.suffix_len is not None else 0
+        if self.prune_config.is_prune:
+            num_block = self.prune_config.current_block
+            num_step = self.prune_config.num_step
+            K = self.prune_config.pruned_layer
+            ratio=self.prune_config.reduction_ratio
+            image_start=self.prune_config.image_token_start_index
+            image_token_length=self.prune_config.image_token_length if self.config.text_length is None else (seq_length - self.config.text_length - gen_length - suffix_len)
+            image_end = image_start + image_token_length
+        else:
+            K = -1
+
         for decoder_layer in self.layers:
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
