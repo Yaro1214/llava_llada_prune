@@ -24,7 +24,7 @@ class Random_v1(LLaDAModel):
     def __init__(self, config: LLaDAConfig):
         self.last_attention = None
         self.retained_indices = None
-        self.prune_config = PruneConfig.instance()
+        self.prune_config = PruneConfig.new_instance()
         super().__init__(config)
     def forward(
         self,
@@ -92,7 +92,7 @@ class Random_v1(LLaDAModel):
         
         #prune
         batch_size, seq_length = inputs_embeds.shape[:2]
-        gen_length=self.prune_config.gen_lenghth #if self.config.gen_length is not None else 0
+        gen_length=self.prune_config.gen_length #if self.config.gen_length is not None else 0
         suffix_length=self.prune_config.suffix_length #if self.config.suffix_len is not None else 0
         if self.prune_config.is_prune:
             num_block = self.prune_config.current_block

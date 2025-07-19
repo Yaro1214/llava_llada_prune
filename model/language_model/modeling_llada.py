@@ -1343,9 +1343,6 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             else:
                 suffix_len = 0
 
-            self.model.config.suffix_len = suffix_len
-            self.model.config.gen_length = gen_length
-
             # pdb.set_trace()
             # Create input in embedding space
             total_length = inputs_embeds.shape[1] + gen_length + suffix_len
@@ -1386,7 +1383,9 @@ class LLaDAModelLM(LLaDAPreTrainedModel):
             # feature_cache = dLLMCache()
             # feature_cache.reset_cache(inputs_embeds.shape[1])
             
-            prune_config=PruneConfig().init()
+            prune_config=PruneConfig()
+            prune_config.init()
+            prune_config.set(suffix_length=suffix_len,gen_length = gen_length)
             for num_block in range(num_blocks):
                 prune_config.update_block()
                 # Create mask index for the current block

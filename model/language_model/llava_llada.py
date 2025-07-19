@@ -29,8 +29,7 @@ from transformers.generation.utils import GenerateOutput
 
 from llava.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
 
-from model.language_model import LLaDAConfig
-from model.language_model import LLaDAModelLM
+from .modeling_llada import LLaDAConfig,LLaDAModelLM
 from prune_token import Random_v1
 
 

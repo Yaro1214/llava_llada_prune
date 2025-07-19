@@ -97,8 +97,8 @@ class llada_v(lmms):
         **kwargs,
     ) -> None:
         super().__init__()
-        # Do not use kwargs for now
-        assert kwargs == {}, f"Unexpected kwargs: {kwargs}"
+        # # Do not use kwargs for now
+        # assert kwargs == {}, f"Unexpected kwargs: {kwargs}"
 
         accelerator_kwargs = InitProcessGroupKwargs(timeout=timedelta(weeks=52))
         accelerator = Accelerator(kwargs_handlers=[accelerator_kwargs])
@@ -155,7 +155,7 @@ class llada_v(lmms):
         self.model.eval()
 
         #设置prune相关参数
-        self.prune_config=PruneConfig.instance(is_prune,**kwargs)
+        self.prune_config=PruneConfig.new_instance(is_prune,**kwargs)
 
         #TODO：设置cache相关参数
 
@@ -628,8 +628,8 @@ class llada_v(lmms):
                 with torch.inference_mode():
                     if self.prune_config.is_prune:
                         image_token_start_index = input_ids.tolist()[0].index(-200)
-                        self.config.text_length = input_ids.shape[-1] - 1 
-                        self.prune_config.image_token_start_index = image_token_start_index
+                        text_length = input_ids.shape[-1] - 1
+                        self.prune_config.set(image_token_start_index=image_token_start_index,text_length=text_length)
                     cont = self.model.generate(input_ids, attention_mask=attention_masks, pad_token_id=pad_token_ids, images=image_tensor, use_cache=False, **gen_kwargs)
 
                 text_outputs = self.tokenizer.batch_decode(cont, skip_special_tokens=True)

@@ -37,7 +37,8 @@ class PruneConfig(metaclass=Singleton):
             ins.reduction_ratio = kwargs.get("reduction_ratio", 0.778)
             ins.pivot_image_token = kwargs.get("pivot_image_token", 4)
             ins.pivot_text_token = kwargs.get("pivot_text_token", 4)
-            ins.image_token_start_index= kwargs.get("image_token_start_index", 0)
+            
+            ins.image_token_starimt_index= kwargs.get("image_token_start_index", 0)
             ins.image_token_length= kwargs.get("image_token_length", 0)
 
         else:
@@ -53,13 +54,20 @@ class PruneConfig(metaclass=Singleton):
         self.current_block = -1
         self.current_step = -1
 
-    def set(self,suffix_length=None, text_length=None, gen_length=None):
-        if suffix_length is not None:
-            self.suffix_length = suffix_length
-        if text_length is not None:
-            self.text_length = text_length
-        if gen_length is not None:
-            self.gen_length = gen_length
+    # def set(self,suffix_length=None, text_length=None, gen_length=None,image_token_starimt_index=None):
+    #     if suffix_length is not None:
+    #         self.suffix_length = suffix_length
+    #     if text_length is not None:
+    #         self.text_length = text_length
+    #     if gen_length is not None:
+    #         self.gen_length = gen_length
+    #     if image_token_starimt_index is not None:
+    #         self.image_token_start_index=image_token_starimt_index
+
+    def set(self, **kwargs):
+        for attr in ["suffix_length", "text_length", "gen_length", "image_token_start_index"]:
+            if attr in kwargs and kwargs[attr] is not None:
+                setattr(self, attr, kwargs[attr])
 
     def update_block(self):
         self.current_block += 1
